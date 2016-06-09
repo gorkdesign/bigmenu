@@ -31,6 +31,7 @@ class MenuFormController extends DefaultMenuFormController
    */
   protected function buildOverviewForm(array &$form, FormStateInterface $form_state, $depth = 1, \Drupal\menu_link_content\Entity\MenuLinkContent $menu_link = NULL)
   {
+//    $menu_link = 'menu_link_content:eeb3b069-6a58-4b8b-9915-59559e240201';
     // Ensure that menu_overview_form_submit() knows the parents of this form
     // section.
     if (!$form_state->has('menu_overview_form_parents')) {
@@ -39,37 +40,6 @@ class MenuFormController extends DefaultMenuFormController
 
     // Use Menu UI adminforms
     $form['#attached']['library'][] = 'menu_ui/drupal.menu_ui.adminforms';
-
-    // 'edit_bigmenu' == $this->operation
-
-    $tree_params = new MenuTreeParameters();
-    $tree_params->setMaxDepth($depth);
-
-    if ($menu_link) {
-      $tree_params->setRoot($menu_link->getPluginId());
-    }
-
-    $tree = $this->menuTree->load($this->entity->id(), $tree_params);
-
-    // We indicate that a menu administrator is running the menu access check.
-    $this->getRequest()->attributes->set('_menu_admin', TRUE);
-    $manipulators = array(
-      array('callable' => 'menu.default_tree_manipulators:checkAccess'),
-      array('callable' => 'menu.default_tree_manipulators:generateIndexAndSort'),
-    );
-    $tree = $this->menuTree->transform($tree, $manipulators);
-    $this->getRequest()->attributes->set('_menu_admin', FALSE);
-
-    // Determine the delta; the number of weights to be made available.
-    $count = function (array $tree) {
-      $sum = function ($carry, MenuLinkTreeElement $item) {
-        return $carry + $item->count();
-      };
-      return array_reduce($tree, $sum);
-    };
-
-    // Tree maximum or 50.
-    $delta = max($count($tree), 50);
 
     $form['links'] = array(
       '#type' => 'table',
@@ -114,10 +84,45 @@ class MenuFormController extends DefaultMenuFormController
       ]),
     ]);
 
+    $tree_params = new MenuTreeParameters();
+    $tree_params->setMaxDepth($depth);
+
+    if ($menu_link) {
+      $tree_params->setRoot($menu_link->getPluginId());
+    }
+
+    $tree = $this->menuTree->load($this->entity->id(), $tree_params);
+
+    // We indicate that a menu administrator is running the menu access check.
+    $this->getRequest()->attributes->set('_menu_admin', TRUE);
+    $manipulators = array(
+      array('callable' => 'menu.default_tree_manipulators:checkAccess'),
+      array('callable' => 'menu.default_tree_manipulators:generateIndexAndSort'),
+    );
+    $tree = $this->menuTree->transform($tree, $manipulators);
+    $this->getRequest()->attributes->set('_menu_admin', FALSE);
+
+    // Determine the delta; the number of weights to be made available.
+    $count = function (array $tree) {
+      $sum = function ($carry, MenuLinkTreeElement $item) {
+        return $carry + $item->count();
+      };
+      return array_reduce($tree, $sum);
+    };
+
+    // Tree maximum or 50.
+    $delta = max($count($tree), 50);
+
     $links = $this->buildOverviewTreeForm($tree, $delta);
 
+    $this->process_links($form, $links, $menu_link);
+
+    return $form;
+  }
+
+  public function process_links(&$form, $links, $menu_link) {
     foreach (Element::children($links) as $id) {
-      if (isset($links[$id]['#item'])) {
+      if (isset($links[$id]['#item']) && !isset($form['links'][$id]['#item'])) {
         $element = $links[$id];
 
         $form['links'][$id]['#item'] = $element['#item'];
@@ -125,8 +130,6 @@ class MenuFormController extends DefaultMenuFormController
         // TableDrag: Mark the table row as draggable.
         $form['links'][$id]['#attributes'] = $element['#attributes'];
         $form['links'][$id]['#attributes']['class'][] = 'draggable';
-
-        $form['links'][$id]['#item'] = $element['#item'];
 
         // TableDrag: Sort the table row according to its existing/configured weight.
         $form['links'][$id]['#weight'] = $element['#item']->link->getWeight();
@@ -143,14 +146,8 @@ class MenuFormController extends DefaultMenuFormController
           ),
           $element['title'],
         );
-        $mlid = (int)$links[$id]['#item']->link->getMetaData()['entity_id'];
-
-
         $form['links'][$id]['enabled'] = $element['enabled'];
-        $form['links'][$id]['enabled']['#wrapper_attributes']['class'] = array(
-          'checkbox',
-          'menu-enabled'
-        );
+        $form['links'][$id]['enabled']['#wrapper_attributes']['class'] = array('checkbox', 'menu-enabled');
 
         $form['links'][$id]['weight'] = $element['weight'];
 
@@ -158,8 +155,9 @@ class MenuFormController extends DefaultMenuFormController
         $form['links'][$id]['operations'] = $element['operations'];
 
         $form['links'][$id]['id'] = $element['id'];
-
         $form['links'][$id]['parent'] = $element['parent'];
+
+        $mlid = (int)$links[$id]['#item']->link->getMetaData()['entity_id'];
 
         if ($form['links'][$id]['#item']->hasChildren) {
           if (!$menu_link || $menu_link->id() != $mlid) {
@@ -191,11 +189,8 @@ class MenuFormController extends DefaultMenuFormController
             );
           }
         }
-
       }
     }
-
-    return $form;
   }
 
   /**
@@ -207,8 +202,6 @@ class MenuFormController extends DefaultMenuFormController
   {
     $elem = $form_state->getTriggeringElement();
     $menuLinkId = $elem['#attributes']['mlid'];
-    $params = new MenuTreeParameters();
-    $params->setRoot($menuLinkId);
 
     $menu_link = \Drupal::entityTypeManager()->getStorage('menu_link_content')->load($menuLinkId);
 
@@ -216,10 +209,33 @@ class MenuFormController extends DefaultMenuFormController
     $ajax_response = new AjaxResponse();
 
     // Add a command to execute on form, jQuery .html() replaces content between tags.
-    // In this case, we replace the desription with whether the username was found or not.
+    // In this case, we replace the description with whether the username was found or not.
     $ajax_response->addCommand(new HtmlCommand('form#menu-edit-bigmenu-form', $this->buildOverviewForm($form, $form_state, 15, $menu_link)));
 
     // Return the AjaxResponse Object.
     return $ajax_response;
   }
+
+//  private function reorder_links($links, $menu_plugin_id) {
+//    $temp_links_before = array();
+//    $temp_links_after = array();
+//
+//    $after = false;
+//    foreach (Element::children($links) as $id) {
+//      $curr_id = $links[$id]['#item']->link->getPluginId();
+////      drupal_set_message($curr_id . "  " . $menu_plugin_id);
+//      if ($curr_id == $menu_plugin_id) {
+//        $after = true;
+//      }
+//      if ($after) {
+//        $temp_links_after[] = $links[$id];
+//      } else {
+//        $temp_links_before[] = $links[$id];
+//      }
+//    }
+//
+////    drupal_set_message(count($temp_links_after) . "  " . count($temp_links_before));
+//
+//    return array_merge($temp_links_before, $temp_links_after);
+//  }
 }

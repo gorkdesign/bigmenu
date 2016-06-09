@@ -110,6 +110,12 @@ function bigmenu_theme() {
   );
 }
 
+function bigmenu_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state, $form_id) {
+  if ($form_id == 'menu_edit_bigmenu_form') {
+//    $form['#attached']['library'][] = 'bigmenu/bigmenu';
+  }
+}
+
 /**
  * Implements hook_permission().
  */
