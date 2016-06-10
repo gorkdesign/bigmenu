@@ -12,6 +12,7 @@ use Drupal\Core\Ajax\HtmlCommand;
 use Drupal\menu_ui\MenuForm as DefaultMenuFormController;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Menu\MenuLinkTreeElement;
+use Drupal\Core\Link;
 use Drupal\Core\Menu\MenuTreeParameters;
 use Drupal\Core\Render\Element;
 
@@ -21,6 +22,7 @@ use Drupal\Core\Render\Element;
  */
 class MenuFormController extends DefaultMenuFormController
 {
+  public $tree = array();
 
   /**
    * @param array $form
@@ -84,11 +86,41 @@ class MenuFormController extends DefaultMenuFormController
       ]),
     ]);
 
+    if (!empty($this->tree)) {
+      drupal_set_message('here');
+      drupal_set_message($this->printTree($this->tree));
+      drupal_set_message('end-here');
+    }
+
+    // Get the menu tree
+    if (empty($this->tree)) {
+      $this->tree = $this->getTree($depth);
+    }
+
+    // Determine the delta; the number of weights to be made available.
+    $count = function (array $tree) {
+      $sum = function ($carry, MenuLinkTreeElement $item) {
+        return $carry + $item->count();
+      };
+      return array_reduce($tree, $sum);
+    };
+
+    // Tree maximum or 50.
+    $delta = max($count($this->tree), 50);
+
+    $links = $this->buildOverviewTreeForm($this->tree, $delta);
+
+    $this->process_links($form, $links, $menu_link);
+
+    return $form;
+  }
+
+  public function getTree($depth, $root = null) {
     $tree_params = new MenuTreeParameters();
     $tree_params->setMaxDepth($depth);
 
-    if ($menu_link) {
-      $tree_params->setRoot($menu_link->getPluginId());
+    if ($root) {
+      $tree_params->setRoot($root->getPluginId());
     }
 
     $tree = $this->menuTree->load($this->entity->id(), $tree_params);
@@ -102,22 +134,19 @@ class MenuFormController extends DefaultMenuFormController
     $tree = $this->menuTree->transform($tree, $manipulators);
     $this->getRequest()->attributes->set('_menu_admin', FALSE);
 
-    // Determine the delta; the number of weights to be made available.
-    $count = function (array $tree) {
-      $sum = function ($carry, MenuLinkTreeElement $item) {
-        return $carry + $item->count();
-      };
-      return array_reduce($tree, $sum);
-    };
+    return $tree;
+  }
 
-    // Tree maximum or 50.
-    $delta = max($count($tree), 50);
+  public function getSubtree($depth, $root) {
+    // Get the slice of the subtree that we're looking for.
+    $slice_tree = $this->getTree($depth, $root);
 
-    $links = $this->buildOverviewTreeForm($tree, $delta);
-
-    $this->process_links($form, $links, $menu_link);
-
-    return $form;
+    // Add it to the larger tree we're rendering.
+    $root_key = key($slice_tree);
+    $this->tree[$root_key]->subtree = &$slice_tree[$root_key]->subtree;
+    drupal_set_message('whaddup');
+    drupal_set_message($this->printTree($this->tree));
+    drupal_set_message('end whaddup');
   }
 
   public function process_links(&$form, $links, $menu_link) {
@@ -208,34 +237,133 @@ class MenuFormController extends DefaultMenuFormController
     // Instantiate an AjaxResponse Object to return.
     $ajax_response = new AjaxResponse();
 
+    $this->getSubtree(10, $menu_link);
+
     // Add a command to execute on form, jQuery .html() replaces content between tags.
-    // In this case, we replace the description with whether the username was found or not.
-    $ajax_response->addCommand(new HtmlCommand('form#menu-edit-bigmenu-form', $this->buildOverviewForm($form, $form_state, 15, $menu_link)));
+    $ajax_response->addCommand(new HtmlCommand('#block-seven-content', $this->buildOverviewForm($form, $form_state, 1)));
 
     // Return the AjaxResponse Object.
     return $ajax_response;
   }
 
-//  private function reorder_links($links, $menu_plugin_id) {
-//    $temp_links_before = array();
-//    $temp_links_after = array();
-//
-//    $after = false;
-//    foreach (Element::children($links) as $id) {
-//      $curr_id = $links[$id]['#item']->link->getPluginId();
-////      drupal_set_message($curr_id . "  " . $menu_plugin_id);
-//      if ($curr_id == $menu_plugin_id) {
-//        $after = true;
-//      }
-//      if ($after) {
-//        $temp_links_after[] = $links[$id];
-//      } else {
-//        $temp_links_before[] = $links[$id];
-//      }
-//    }
-//
-////    drupal_set_message(count($temp_links_after) . "  " . count($temp_links_before));
-//
-//    return array_merge($temp_links_before, $temp_links_after);
-//  }
+  public function printTree($tree) {
+    foreach ($tree as $key => $leaf) {
+      drupal_set_message($key . " count: " . $leaf->count());
+      if ($leaf->count() > 1) {
+        drupal_set_message('---subtree---' . $key);
+        $this->printTree($leaf->subtree);
+        drupal_set_message('---endsubtree---' . $key);
+      }
+    }
+  }
+
+  /**
+   * Recursive helper function for buildOverviewForm().
+   *
+   * @param \Drupal\Core\Menu\MenuLinkTreeElement[] $tree
+   *   The tree retrieved by \Drupal\Core\Menu\MenuLinkTreeInterface::load().
+   * @param int $delta
+   *   The default number of menu items used in the menu weight selector is 50.
+   *
+   * @return array
+   *   The overview tree form.
+   */
+  protected function buildOverviewTreeForm($tree, $delta) {
+    $form = &$this->overviewTreeForm;
+    foreach ($tree as $element) {
+      // Only render accessible links.
+      if (!$element->access->isAllowed()) {
+        continue;
+      }
+
+      /** @var \Drupal\Core\Menu\MenuLinkInterface $link */
+      $link = $element->link;
+      if ($link) {
+        $id = 'menu_plugin_id:' . $link->getPluginId();
+        $form[$id]['#item'] = $element;
+        $form[$id]['#attributes'] = $link->isEnabled() ? array('class' => array('menu-enabled')) : array('class' => array('menu-disabled'));
+        $form[$id]['title'] = Link::fromTextAndUrl($link->getTitle(), $link->getUrlObject())->toRenderable();
+
+        if (!$link->isEnabled()) {
+          $form[$id]['title']['#suffix'] = ' (' . $this->t('disabled') . ')';
+        }
+        // @todo Remove this in https://www.drupal.org/node/2568785.
+        elseif ($id === 'menu_plugin_id:user.logout') {
+          $form[$id]['title']['#suffix'] = ' (' . $this->t('<q>Log in</q> for anonymous users') . ')';
+        }
+        // @todo Remove this in https://www.drupal.org/node/2568785.
+        elseif (($url = $link->getUrlObject()) && $url->isRouted() && $url->getRouteName() == 'user.page') {
+          $form[$id]['title']['#suffix'] = ' (' . $this->t('logged in users only') . ')';
+        }
+
+        $form[$id]['enabled'] = array(
+          '#type' => 'checkbox',
+          '#title' => $this->t('Enable @title menu link', array('@title' => $link->getTitle())),
+          '#title_display' => 'invisible',
+          '#default_value' => $link->isEnabled(),
+        );
+        $form[$id]['weight'] = array(
+          '#type' => 'weight',
+          '#delta' => $delta,
+          '#default_value' => $link->getWeight(),
+          '#title' => $this->t('Weight for @title', array('@title' => $link->getTitle())),
+          '#title_display' => 'invisible',
+        );
+        $form[$id]['id'] = array(
+          '#type' => 'hidden',
+          '#value' => $link->getPluginId(),
+        );
+        $form[$id]['parent'] = array(
+          '#type' => 'hidden',
+          '#default_value' => $link->getParent(),
+        );
+        // Build a list of operations.
+        $operations = array();
+        $operations['edit'] = array(
+          'title' => $this->t('Edit'),
+        );
+        // Allow for a custom edit link per plugin.
+        $edit_route = $link->getEditRoute();
+        if ($edit_route) {
+          $operations['edit']['url'] = $edit_route;
+          // Bring the user back to the menu overview.
+          $operations['edit']['query'] = $this->getDestinationArray();
+        }
+        else {
+          // Fall back to the standard edit link.
+          $operations['edit'] += array(
+            'url' => Url::fromRoute('menu_ui.link_edit', ['menu_link_plugin' => $link->getPluginId()]),
+          );
+        }
+        // Links can either be reset or deleted, not both.
+        if ($link->isResettable()) {
+          $operations['reset'] = array(
+            'title' => $this->t('Reset'),
+            'url' => Url::fromRoute('menu_ui.link_reset', ['menu_link_plugin' => $link->getPluginId()]),
+          );
+        }
+        elseif ($delete_link = $link->getDeleteRoute()) {
+          $operations['delete']['url'] = $delete_link;
+          $operations['delete']['query'] = $this->getDestinationArray();
+          $operations['delete']['title'] = $this->t('Delete');
+        }
+        if ($link->isTranslatable()) {
+          $operations['translate'] = array(
+            'title' => $this->t('Translate'),
+            'url' => $link->getTranslateRoute(),
+          );
+        }
+        $form[$id]['operations'] = array(
+          '#type' => 'operations',
+          '#links' => $operations,
+        );
+      }
+
+      if ($element->subtree) {
+        $this->buildOverviewTreeForm($element->subtree, $delta);
+      }
+    }
+
+    return $form;
+  }
 }
