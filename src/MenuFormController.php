@@ -33,7 +33,6 @@ class MenuFormController extends DefaultMenuFormController
    */
   protected function buildOverviewForm(array &$form, FormStateInterface $form_state, $depth = 1, \Drupal\menu_link_content\Entity\MenuLinkContent $menu_link = NULL)
   {
-//    $menu_link = 'menu_link_content:eeb3b069-6a58-4b8b-9915-59559e240201';
     // Ensure that menu_overview_form_submit() knows the parents of this form
     // section.
     if (!$form_state->has('menu_overview_form_parents')) {
@@ -86,12 +85,6 @@ class MenuFormController extends DefaultMenuFormController
       ]),
     ]);
 
-    if (!empty($this->tree)) {
-      drupal_set_message('here');
-      drupal_set_message($this->printTree($this->tree));
-      drupal_set_message('end-here');
-    }
-
     // Get the menu tree
     if (empty($this->tree)) {
       $this->tree = $this->getTree($depth);
@@ -115,6 +108,13 @@ class MenuFormController extends DefaultMenuFormController
     return $form;
   }
 
+  /**
+   * Gets the menu tree.
+   *
+   * @param $depth
+   * @param null $root
+   * @return \Drupal\Core\Menu\MenuLinkTreeElement[]
+   */
   public function getTree($depth, $root = null) {
     $tree_params = new MenuTreeParameters();
     $tree_params->setMaxDepth($depth);
@@ -137,6 +137,12 @@ class MenuFormController extends DefaultMenuFormController
     return $tree;
   }
 
+  /**
+   * Append a child's subtree to the parent tree.
+   *
+   * @param $depth
+   * @param $root
+   */
   public function getSubtree($depth, $root) {
     // Get the slice of the subtree that we're looking for.
     $slice_tree = $this->getTree($depth, $root);
@@ -144,11 +150,14 @@ class MenuFormController extends DefaultMenuFormController
     // Add it to the larger tree we're rendering.
     $root_key = key($slice_tree);
     $this->tree[$root_key]->subtree = &$slice_tree[$root_key]->subtree;
-    drupal_set_message('whaddup');
-    drupal_set_message($this->printTree($this->tree));
-    drupal_set_message('end whaddup');
   }
 
+  /**
+   * Format the links appropriately so draggable views will work.
+   * @param $form
+   * @param $links
+   * @param $menu_link
+   */
   public function process_links(&$form, $links, $menu_link) {
     foreach (Element::children($links) as $id) {
       if (isset($links[$id]['#item']) && !isset($form['links'][$id]['#item'])) {
@@ -223,6 +232,8 @@ class MenuFormController extends DefaultMenuFormController
   }
 
   /**
+   * AJAX function called when a "Show Children" button is pressed.
+   *
    * @param array $form
    * @param \Drupal\Core\Form\FormStateInterface $form_state
    * @return AjaxResponse
@@ -246,6 +257,10 @@ class MenuFormController extends DefaultMenuFormController
     return $ajax_response;
   }
 
+  /**
+   * Header function to print the tree.
+   * @param $tree
+   */
   public function printTree($tree) {
     foreach ($tree as $key => $leaf) {
       drupal_set_message($key . " count: " . $leaf->count());
@@ -257,113 +272,4 @@ class MenuFormController extends DefaultMenuFormController
     }
   }
 
-  /**
-   * Recursive helper function for buildOverviewForm().
-   *
-   * @param \Drupal\Core\Menu\MenuLinkTreeElement[] $tree
-   *   The tree retrieved by \Drupal\Core\Menu\MenuLinkTreeInterface::load().
-   * @param int $delta
-   *   The default number of menu items used in the menu weight selector is 50.
-   *
-   * @return array
-   *   The overview tree form.
-   */
-  protected function buildOverviewTreeForm($tree, $delta) {
-    $form = &$this->overviewTreeForm;
-    foreach ($tree as $element) {
-      // Only render accessible links.
-      if (!$element->access->isAllowed()) {
-        continue;
-      }
-
-      /** @var \Drupal\Core\Menu\MenuLinkInterface $link */
-      $link = $element->link;
-      if ($link) {
-        $id = 'menu_plugin_id:' . $link->getPluginId();
-        $form[$id]['#item'] = $element;
-        $form[$id]['#attributes'] = $link->isEnabled() ? array('class' => array('menu-enabled')) : array('class' => array('menu-disabled'));
-        $form[$id]['title'] = Link::fromTextAndUrl($link->getTitle(), $link->getUrlObject())->toRenderable();
-
-        if (!$link->isEnabled()) {
-          $form[$id]['title']['#suffix'] = ' (' . $this->t('disabled') . ')';
-        }
-        // @todo Remove this in https://www.drupal.org/node/2568785.
-        elseif ($id === 'menu_plugin_id:user.logout') {
-          $form[$id]['title']['#suffix'] = ' (' . $this->t('<q>Log in</q> for anonymous users') . ')';
-        }
-        // @todo Remove this in https://www.drupal.org/node/2568785.
-        elseif (($url = $link->getUrlObject()) && $url->isRouted() && $url->getRouteName() == 'user.page') {
-          $form[$id]['title']['#suffix'] = ' (' . $this->t('logged in users only') . ')';
-        }
-
-        $form[$id]['enabled'] = array(
-          '#type' => 'checkbox',
-          '#title' => $this->t('Enable @title menu link', array('@title' => $link->getTitle())),
-          '#title_display' => 'invisible',
-          '#default_value' => $link->isEnabled(),
-        );
-        $form[$id]['weight'] = array(
-          '#type' => 'weight',
-          '#delta' => $delta,
-          '#default_value' => $link->getWeight(),
-          '#title' => $this->t('Weight for @title', array('@title' => $link->getTitle())),
-          '#title_display' => 'invisible',
-        );
-        $form[$id]['id'] = array(
-          '#type' => 'hidden',
-          '#value' => $link->getPluginId(),
-        );
-        $form[$id]['parent'] = array(
-          '#type' => 'hidden',
-          '#default_value' => $link->getParent(),
-        );
-        // Build a list of operations.
-        $operations = array();
-        $operations['edit'] = array(
-          'title' => $this->t('Edit'),
-        );
-        // Allow for a custom edit link per plugin.
-        $edit_route = $link->getEditRoute();
-        if ($edit_route) {
-          $operations['edit']['url'] = $edit_route;
-          // Bring the user back to the menu overview.
-          $operations['edit']['query'] = $this->getDestinationArray();
-        }
-        else {
-          // Fall back to the standard edit link.
-          $operations['edit'] += array(
-            'url' => Url::fromRoute('menu_ui.link_edit', ['menu_link_plugin' => $link->getPluginId()]),
-          );
-        }
-        // Links can either be reset or deleted, not both.
-        if ($link->isResettable()) {
-          $operations['reset'] = array(
-            'title' => $this->t('Reset'),
-            'url' => Url::fromRoute('menu_ui.link_reset', ['menu_link_plugin' => $link->getPluginId()]),
-          );
-        }
-        elseif ($delete_link = $link->getDeleteRoute()) {
-          $operations['delete']['url'] = $delete_link;
-          $operations['delete']['query'] = $this->getDestinationArray();
-          $operations['delete']['title'] = $this->t('Delete');
-        }
-        if ($link->isTranslatable()) {
-          $operations['translate'] = array(
-            'title' => $this->t('Translate'),
-            'url' => $link->getTranslateRoute(),
-          );
-        }
-        $form[$id]['operations'] = array(
-          '#type' => 'operations',
-          '#links' => $operations,
-        );
-      }
-
-      if ($element->subtree) {
-        $this->buildOverviewTreeForm($element->subtree, $delta);
-      }
-    }
-
-    return $form;
-  }
 }
