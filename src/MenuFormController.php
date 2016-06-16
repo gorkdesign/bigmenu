@@ -103,6 +103,8 @@ class MenuFormController extends DefaultMenuFormController
 
     $links = $this->buildOverviewTreeForm($this->tree, $delta);
 
+    drupal_set_message(count($links));
+
     $this->process_links($form, $links, $menu_link);
 
     return $form;
@@ -144,6 +146,8 @@ class MenuFormController extends DefaultMenuFormController
    * @param $root
    */
   public function getSubtree($depth, $root) {
+    $this->overviewTreeForm = array();
+
     // Get the slice of the subtree that we're looking for.
     $slice_tree = $this->getTree($depth, $root);
 
@@ -248,6 +252,11 @@ class MenuFormController extends DefaultMenuFormController
     // Instantiate an AjaxResponse Object to return.
     $ajax_response = new AjaxResponse();
 
+    $form_state->set('rebuild', TRUE);
+
+    unset($form['links']);
+
+    drupal_set_message($menu_link->id());
     $this->getSubtree(10, $menu_link);
 
     // Add a command to execute on form, jQuery .html() replaces content between tags.
