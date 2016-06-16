@@ -85,7 +85,7 @@ class MenuFormController extends DefaultMenuFormController
       ]),
     ]);
 
-    // Get the menu tree
+    // Get the menu tree if it's not in our property.
     if (empty($this->tree)) {
       $this->tree = $this->getTree($depth);
     }
@@ -102,8 +102,6 @@ class MenuFormController extends DefaultMenuFormController
     $delta = max($count($this->tree), 50);
 
     $links = $this->buildOverviewTreeForm($this->tree, $delta);
-
-    drupal_set_message(count($links));
 
     $this->process_links($form, $links, $menu_link);
 
@@ -145,7 +143,8 @@ class MenuFormController extends DefaultMenuFormController
    * @param $depth
    * @param $root
    */
-  public function getSubtree($depth, $root) {
+  public function appendSubtree($depth, $root) {
+    // Clear out the overview tree form which has the old tree info in it.
     $this->overviewTreeForm = array();
 
     // Get the slice of the subtree that we're looking for.
@@ -254,10 +253,7 @@ class MenuFormController extends DefaultMenuFormController
 
     $form_state->set('rebuild', TRUE);
 
-    unset($form['links']);
-
-    drupal_set_message($menu_link->id());
-    $this->getSubtree(10, $menu_link);
+    $this->appendSubtree(10, $menu_link);
 
     // Add a command to execute on form, jQuery .html() replaces content between tags.
     $ajax_response->addCommand(new HtmlCommand('#block-seven-content', $this->buildOverviewForm($form, $form_state, 1)));
