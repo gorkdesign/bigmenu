@@ -145,7 +145,7 @@ class MenuFormController extends DefaultMenuFormController
    */
   public function appendSubtree($depth, $root) {
     // Clear out the overview tree form which has the old tree info in it.
-    $this->overviewTreeForm = array();
+    $this->overviewTreeForm = array('#tree' => TRUE);
 
     // Get the slice of the subtree that we're looking for.
     $slice_tree = $this->getTree($depth, $root);
@@ -161,9 +161,9 @@ class MenuFormController extends DefaultMenuFormController
    * @param $links
    * @param $menu_link
    */
-  public function process_links(&$form, $links, $menu_link) {
+  public function process_links(&$form, &$links, $menu_link) {
     foreach (Element::children($links) as $id) {
-      if (isset($links[$id]['#item']) && !isset($form['links'][$id]['#item'])) {
+      if (isset($links[$id]['#item'])) {
         $element = $links[$id];
 
         $form['links'][$id]['#item'] = $element['#item'];
@@ -201,7 +201,7 @@ class MenuFormController extends DefaultMenuFormController
         $mlid = (int)$links[$id]['#item']->link->getMetaData()['entity_id'];
 
         if ($form['links'][$id]['#item']->hasChildren) {
-          if (!$menu_link || $menu_link->id() != $mlid) {
+          if (is_null($menu_link) || (isset($menu_link) && $menu_link->id() != $mlid)) {
             $form['links'][$id]['title'][] = array(
               '#type' => 'big_menu_button',
               '#title' => t('Show Children'),
@@ -251,11 +251,12 @@ class MenuFormController extends DefaultMenuFormController
     // Instantiate an AjaxResponse Object to return.
     $ajax_response = new AjaxResponse();
 
-    $form_state->set('rebuild', TRUE);
+    $form_state->setRebuild(TRUE);
 
     $this->appendSubtree(10, $menu_link);
 
     // Add a command to execute on form, jQuery .html() replaces content between tags.
+//    $ajax_response->addCommand(new HtmlCommand('.menu-edit-bigmenu-form menu-form', $this->buildOverviewForm($form, $form_state, 1)));
     $ajax_response->addCommand(new HtmlCommand('#block-seven-content', $this->buildOverviewForm($form, $form_state, 1)));
 
     // Return the AjaxResponse Object.
